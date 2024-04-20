@@ -22,10 +22,13 @@ pub struct ConnectFedPayload {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LeaveFedPayload {
     pub federation_id: FederationId,
+    pub include_config : bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct InfoPayload;
+pub struct InfoPayload {
+    pub include_config : bool,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BackupPayload {
@@ -64,7 +67,8 @@ pub struct WithdrawPayload {
 pub struct FederationInfo {
     pub federation_id: FederationId,
     pub balance_msat: Amount,
-    pub config: ClientConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]  // Skip serializing if config is None
+    pub config: Option<ClientConfig>,
     pub channel_id: Option<u64>,
     pub routing_fees: Option<FederationRoutingFees>,
 }

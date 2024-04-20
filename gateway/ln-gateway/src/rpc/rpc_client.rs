@@ -7,9 +7,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 use super::{
-    BackupPayload, BalancePayload, ConfigPayload, ConnectFedPayload, DepositAddressPayload,
-    FederationInfo, GatewayFedConfig, GatewayInfo, LeaveFedPayload, RestorePayload,
-    SetConfigurationPayload, WithdrawPayload,
+    BackupPayload, BalancePayload, ConfigPayload, ConnectFedPayload, DepositAddressPayload, FederationInfo, GatewayFedConfig, GatewayInfo, InfoPayload, LeaveFedPayload, RestorePayload, SetConfigurationPayload, WithdrawPayload
 };
 
 pub struct GatewayRpcClient {
@@ -35,9 +33,9 @@ impl GatewayRpcClient {
         GatewayRpcClient::new(self.base_url.clone(), password)
     }
 
-    pub async fn get_info(&self) -> GatewayRpcResult<GatewayInfo> {
+    pub async fn get_info(&self, payload: InfoPayload) -> GatewayRpcResult<GatewayInfo> {
         let url = self.base_url.join("/info").expect("invalid base url");
-        self.call_get(url).await
+        self.call_post(url, payload).await
     }
 
     // FIXME: deprecated >= 0.3.0

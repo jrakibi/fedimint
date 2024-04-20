@@ -48,8 +48,7 @@ use ln_gateway::gateway_lnrpc::GetNodeInfoResponse;
 use ln_gateway::rpc::rpc_client::{GatewayRpcClient, GatewayRpcError, GatewayRpcResult};
 use ln_gateway::rpc::rpc_server::hash_password;
 use ln_gateway::rpc::{
-    BalancePayload, ConnectFedPayload, FederationRoutingFees, LeaveFedPayload,
-    SetConfigurationPayload,
+    BalancePayload, ConnectFedPayload, FederationRoutingFees, InfoPayload, LeaveFedPayload, SetConfigurationPayload
 };
 use ln_gateway::state_machine::pay::{
     OutgoingContractError, OutgoingPaymentError, OutgoingPaymentErrorType,
@@ -883,6 +882,7 @@ async fn test_gateway_register_with_federation() -> anyhow::Result<()> {
     let fixtures = fixtures();
     let node = fixtures.lnd().await;
     let fed = fixtures.new_fed().await;
+    let include_config = true;
     let user_client = fed.new_client().await;
     let mut gateway_test = fixtures
         .new_gateway(node, 0, Some(DEFAULT_GATEWAY_PASSWORD.to_string()))
@@ -909,6 +909,7 @@ async fn test_gateway_register_with_federation() -> anyhow::Result<()> {
     verify_gateway_rpc_success("leave_federation", || {
         rpc_client.leave_federation(LeaveFedPayload {
             federation_id: fed.id(),
+            include_config: include_config,
         })
     })
     .await;
@@ -1171,6 +1172,7 @@ async fn test_gateway_configuration() -> anyhow::Result<()> {
     let fixtures = fixtures();
 
     let fed = fixtures.new_fed().await;
+    let include_config = true;
     let lnd = fixtures.lnd().await;
     let gateway = fixtures.new_gateway(lnd, 0, None).await;
     let initial_rpc_client = gateway.get_rpc().await;
@@ -1189,7 +1191,7 @@ async fn test_gateway_configuration() -> anyhow::Result<()> {
     .await;
 
     // Verify that the gateway's state is "Configuring"
-    let gw_info = verify_gateway_rpc_success("get_info", || initial_rpc_client.get_info()).await;
+    let gw_info = verify_gateway_rpc_success("get_info", || initial_rpc_client.get_info(InfoPayload { include_config: include_config })).await;
     assert_eq!(gw_info.gateway_state, "Configuring".to_string());
 
     // Verify that the gateway's fees, and network are `None`
@@ -1226,7 +1228,7 @@ async fn test_gateway_configuration() -> anyhow::Result<()> {
     // Verify client with no password fails since the password has been set
     verify_gateway_rpc_failure(
         "get_info",
-        || initial_rpc_client.get_info(),
+        || initial_rpc_client.get_info(InfoPayload { include_config: include_config }),
         StatusCode::UNAUTHORIZED,
     )
     .await;
@@ -1235,7 +1237,7 @@ async fn test_gateway_configuration() -> anyhow::Result<()> {
     // lightning node network
     let initial_rpc_client_with_password = initial_rpc_client.with_password(Some(test_password));
     let gw_info =
-        verify_gateway_rpc_success("get_info", || initial_rpc_client_with_password.get_info())
+        verify_gateway_rpc_success("get_info", || initial_rpc_client_with_password.get_info(InfoPayload { include_config: include_config }))
             .await;
     assert_eq!(gw_info.gateway_state, "Running".to_string());
     assert_eq!(gw_info.fees, Some(DEFAULT_FEES));
@@ -1263,7 +1265,7 @@ async fn test_gateway_configuration() -> anyhow::Result<()> {
     // Verify info works with the new password.
     let new_password_rpc_client = initial_rpc_client.with_password(Some(new_password.clone()));
     let gw_info =
-        verify_gateway_rpc_success("get_info", || new_password_rpc_client.get_info()).await;
+        verify_gateway_rpc_success("get_info", || new_password_rpc_client.get_info(InfoPayload { include_config: include_config })).await;
 
     assert_eq!(gw_info.gateway_state, "Running".to_string());
     assert_eq!(gw_info.fees, Some(GatewayFee(federation_fee.into()).0));
@@ -1275,7 +1277,7 @@ async fn test_gateway_configuration() -> anyhow::Result<()> {
     // Verify that get_info with the old password fails
     verify_gateway_rpc_failure(
         "get_info",
-        || initial_rpc_client_with_password.get_info(),
+        || initial_rpc_client_with_password.get_info(InfoPayload { include_config: include_config }),
         StatusCode::UNAUTHORIZED,
     )
     .await;
@@ -1343,7 +1345,7 @@ async fn test_gateway_configuration() -> anyhow::Result<()> {
     // Verify info has new per federation routing fees.
     let new_password_rpc_client = initial_rpc_client.with_password(Some(new_password.clone()));
     let gw_info =
-        verify_gateway_rpc_success("get_info", || new_password_rpc_client.get_info()).await;
+        verify_gateway_rpc_success("get_info", || new_password_rpc_client.get_info(InfoPayload { include_config: include_config })).await;
     assert_eq!(
         gw_info
             .federations
@@ -1361,8 +1363,10 @@ async fn test_gateway_supports_connecting_multiple_federations() -> anyhow::Resu
     multi_federation_test(
         LightningNodeType::Lnd,
         |gateway, rpc, fed1, fed2, _| async move {
+            let include_config = true;
+
             info!("Starting test_gateway_supports_connecting_multiple_federations");
-            assert_eq!(rpc.get_info().await.unwrap().federations.len(), 0);
+            assert_eq!(rpc.get_info(InfoPayload { include_config: include_config }).await.unwrap().federations.len(), 0);
 
             let invite1 = fed1.invite_code();
             let info = rpc
@@ -1394,14 +1398,16 @@ async fn test_gateway_shows_info_about_all_connected_federations() -> anyhow::Re
     multi_federation_test(
         LightningNodeType::Lnd,
         |gateway, rpc, fed1, fed2, _| async move {
-            assert_eq!(rpc.get_info().await.unwrap().federations.len(), 0);
+            let include_config = true;
+
+            assert_eq!(rpc.get_info(InfoPayload { include_config: include_config }).await.unwrap().federations.len(), 0);
 
             let id1 = fed1.invite_code().federation_id();
             let id2 = fed2.invite_code().federation_id();
 
             connect_federations(&rpc, &[fed1, fed2]).await.unwrap();
 
-            let info = rpc.get_info().await.unwrap();
+            let info = rpc.get_info(InfoPayload { include_config: include_config }).await.unwrap();
 
             assert_eq!(info.federations.len(), 2);
             assert!(info
@@ -1424,7 +1430,9 @@ async fn test_gateway_can_leave_connected_federations() -> anyhow::Result<()> {
     multi_federation_test(
         LightningNodeType::Lnd,
         |gateway, rpc, fed1, fed2, _| async move {
-            assert_eq!(rpc.get_info().await.unwrap().federations.len(), 0);
+            let include_config = true;
+
+            assert_eq!(rpc.get_info(InfoPayload { include_config: include_config }).await.unwrap().federations.len(), 0);
 
             let invite1 = fed1.invite_code();
             let invite2 = fed2.invite_code();
@@ -1434,7 +1442,7 @@ async fn test_gateway_can_leave_connected_federations() -> anyhow::Result<()> {
 
             connect_federations(&rpc, &[fed1, fed2]).await.unwrap();
 
-            let info = rpc.get_info().await.unwrap();
+            let info = rpc.get_info(InfoPayload { include_config: include_config }).await.unwrap();
             assert_eq!(info.federations.len(), 2);
             assert!(info
                 .federations
@@ -1447,7 +1455,7 @@ async fn test_gateway_can_leave_connected_federations() -> anyhow::Result<()> {
 
             // remove first connected federation
             let fed_info = rpc
-                .leave_federation(LeaveFedPayload { federation_id: id1 })
+                .leave_federation(LeaveFedPayload { federation_id: id1, include_config: include_config })
                 .await
                 .unwrap();
             assert_eq!(fed_info.federation_id, id1);
@@ -1465,7 +1473,7 @@ async fn test_gateway_can_leave_connected_federations() -> anyhow::Result<()> {
 
             // remove second connected federation
             let fed_info = rpc
-                .leave_federation(LeaveFedPayload { federation_id: id2 })
+                .leave_federation(LeaveFedPayload { federation_id: id2, include_config: include_config })
                 .await
                 .unwrap();
             assert_eq!(fed_info.federation_id, id2);
@@ -1481,7 +1489,7 @@ async fn test_gateway_can_leave_connected_federations() -> anyhow::Result<()> {
             assert_eq!(fed_info.federation_id, id2);
             assert_eq!(fed_info.channel_id, Some(4));
 
-            let info = rpc.get_info().await.unwrap();
+            let info = rpc.get_info(InfoPayload { include_config: include_config }).await.unwrap();
             assert_eq!(info.federations.len(), 2);
             assert_eq!(
                 info.channels.unwrap().keys().cloned().collect::<Vec<u64>>(),
@@ -1663,9 +1671,11 @@ fn routing_fees_in_msats(routing_fees: &FederationRoutingFees, amount: &Amount) 
 }
 
 async fn reconnect_federation(rpc: &GatewayRpcClient, fed: &FederationTest) {
+    let include_config = true;
     verify_gateway_rpc_success("leave_federation", || {
         rpc.leave_federation(LeaveFedPayload {
             federation_id: fed.id(),
+            include_config: include_config,
         })
     })
     .await;

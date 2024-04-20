@@ -195,15 +195,16 @@ async fn handle_post_info(
     Extension(gateway): Extension<Gateway>,
     Json(_payload): Json<InfoPayload>,
 ) -> Result<impl IntoResponse, GatewayError> {
-    let info = gateway.handle_get_info().await?;
+    let info = gateway.handle_get_info(_payload.include_config).await?;
     Ok(Json(json!(info)))
 }
 
 /// Display high-level information about the Gateway
 #[debug_handler]
 #[instrument(skip_all, err)]
-async fn info(Extension(gateway): Extension<Gateway>) -> Result<impl IntoResponse, GatewayError> {
-    let info = gateway.handle_get_info().await?;
+async fn info(Extension(gateway): Extension<Gateway>,
+Json(payload): Json<InfoPayload>,) -> Result<impl IntoResponse, GatewayError> {
+    let info = gateway.handle_get_info(payload.include_config).await?;
     Ok(Json(json!(info)))
 }
 

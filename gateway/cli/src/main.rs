@@ -11,9 +11,7 @@ use fedimint_core::{fedimint_build_code_version_env, BitcoinAmountOrAll};
 use fedimint_logging::TracingSetup;
 use ln_gateway::rpc::rpc_client::GatewayRpcClient;
 use ln_gateway::rpc::{
-    BackupPayload, BalancePayload, ConfigPayload, ConnectFedPayload, DepositAddressPayload,
-    FederationRoutingFees, LeaveFedPayload, RestorePayload, SetConfigurationPayload,
-    WithdrawPayload, V1_API_ENDPOINT,
+    BackupPayload, BalancePayload, ConfigPayload, ConnectFedPayload, DepositAddressPayload, FederationRoutingFees, InfoPayload, LeaveFedPayload, RestorePayload, SetConfigurationPayload, WithdrawPayload, V1_API_ENDPOINT
 };
 use serde::Serialize;
 
@@ -35,7 +33,10 @@ pub enum Commands {
     /// Display CLI version hash
     VersionHash,
     /// Display high-level information about the Gateway
-    Info,
+    Info {
+        #[clap(long)]
+        include_config: bool,
+    },
     /// Display config information about the Gateways federation
     Config {
         #[clap(long)]
@@ -71,6 +72,9 @@ pub enum Commands {
     LeaveFed {
         #[clap(long)]
         federation_id: FederationId,
+
+        #[clap(long)]
+        include_config: bool,
     },
     /// Make a backup of snapshot of all ecash
     Backup {
@@ -146,11 +150,11 @@ async fn main() -> anyhow::Result<()> {
         Commands::VersionHash => {
             println!("{}", fedimint_build_code_version_env!());
         }
-        Commands::Info => {
+        Commands::Info { include_config } => {
             // For backwards-compatibility, fallback to the original POST endpoint if the
             // GET endpoint fails
             // FIXME: deprecated >= 0.3.0
-            let response = match client().get_info().await {
+            let response = match client().get_info(InfoPayload { include_config }).await {
                 Ok(res) => res,
                 Err(_) => client().get_info_legacy().await?,
             };
@@ -199,9 +203,12 @@ async fn main() -> anyhow::Result<()> {
 
             print_response(response).await;
         }
-        Commands::LeaveFed { federation_id } => {
+        Commands::LeaveFed { 
+            federation_id,
+            include_config,
+        } => {
             let response = client()
-                .leave_federation(LeaveFedPayload { federation_id })
+                .leave_federation(LeaveFedPayload { federation_id, include_config })
                 .await?;
             print_response(response).await;
         }

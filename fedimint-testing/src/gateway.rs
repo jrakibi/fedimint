@@ -19,7 +19,7 @@ use lightning_invoice::RoutingFees;
 use ln_gateway::client::GatewayClientBuilder;
 use ln_gateway::lightning::{ILnRpcClient, LightningBuilder};
 use ln_gateway::rpc::rpc_client::GatewayRpcClient;
-use ln_gateway::rpc::{ConnectFedPayload, FederationInfo, V1_API_ENDPOINT};
+use ln_gateway::rpc::{ConnectFedPayload, FederationInfo, InfoPayload, V1_API_ENDPOINT};
 use ln_gateway::{Gateway, GatewayState};
 use secp256k1::PublicKey;
 use tempfile::TempDir;
@@ -187,7 +187,7 @@ impl GatewayTest {
     ) -> anyhow::Result<()> {
         let rpc = GatewayRpcClient::new(versioned_api, password);
         for _ in 0..30 {
-            let rpc_result = rpc.get_info().await;
+            let rpc_result = rpc.get_info(InfoPayload { include_config: true }).await;
             if rpc_result.is_ok() {
                 return Ok(());
             }

@@ -676,7 +676,9 @@ impl Gateway {
         *lock = state;
     }
 
-    pub async fn handle_get_info(&self) -> Result<GatewayInfo> {
+    pub async fn handle_get_info(&self, 
+        include_config: bool,
+    ) -> Result<GatewayInfo> {
         if let GatewayState::Running { lightning_context } = self.state.read().await.clone() {
             // `GatewayConfiguration` should always exist in the database when we are in the
             // `Running` state.
@@ -697,7 +699,7 @@ impl Gateway {
                 federations.push(
                     client
                         .borrow()
-                        .with(|client| self.make_federation_info(client, federation_id))
+                        .with(|client| self.make_federation_info(client, federation_id, include_config))
                         .await,
                 );
             }
@@ -889,7 +891,7 @@ impl Gateway {
         Err(GatewayError::Disconnected)
     }
 
-    async fn handle_connect_federation(
+    async fn handle_connect_federation( 
         &mut self,
         payload: ConnectFedPayload,
     ) -> Result<FederationInfo> {
@@ -949,7 +951,7 @@ impl Gateway {
             let federation_info = FederationInfo {
                 federation_id,
                 balance_msat: client.get_balance().await,
-                config: client.get_config().clone(),
+                config: Some(client.get_config().clone()),
                 channel_id: Some(mint_channel_id),
                 routing_fees: Some(gateway_config.routing_fees.into()),
             };
@@ -1005,7 +1007,7 @@ impl Gateway {
         let federation_info = {
             let client = self.select_client(payload.federation_id).await?;
             let federation_info = self
-                .make_federation_info(client.value(), payload.federation_id)
+                .make_federation_info(client.value(), payload.federation_id, payload.include_config)
                 .await;
 
             let keypair = dbtx
@@ -1446,9 +1448,11 @@ impl Gateway {
         &self,
         client: &ClientHandleArc,
         federation_id: FederationId,
+        include_config: bool,
     ) -> FederationInfo {
         let balance_msat = client.get_balance().await;
-        let config = client.get_config().clone();
+        // let config = client.get_config().clone();
+        let config = if include_config { Some(client.get_config().clone()) } else { None };
         let channel_id = self
             .scid_to_federation
             .read()
@@ -1483,31 +1487,38 @@ impl Gateway {
         info: &FederationInfo,
         network: Network,
     ) -> Result<()> {
-        let cfg = info
-            .config
-            .modules
-            .values()
-            .find(|m| LightningCommonInit::KIND == m.kind.clone())
-            .ok_or_else(|| {
-                GatewayError::InvalidMetadata(format!(
-                    "Federation {} does not have a lightning module",
-                    info.federation_id
-                ))
-            })?;
-        let ln_cfg: &LightningClientConfig = cfg.cast()?;
-
-        if bitcoin29_to_bitcoin30_network(ln_cfg.network) != network {
-            error!(
-                "Federation {} runs on {} but this gateway supports {}",
-                info.federation_id, ln_cfg.network, network,
-            );
-            return Err(GatewayError::UnsupportedNetwork(
-                bitcoin29_to_bitcoin30_network(ln_cfg.network),
-            ));
+        match &info.config {
+            Some(cfg) => {
+                let module = cfg.modules
+                    .values()
+                    .find(|m| LightningCommonInit::KIND == m.kind.clone())
+                    .ok_or_else(|| {
+                        GatewayError::InvalidMetadata(format!(
+                            "Federation {} does not have a lightning module",
+                            info.federation_id
+                        ))
+                    })?;
+                let ln_cfg: &LightningClientConfig = module.cast()?;
+    
+                if bitcoin29_to_bitcoin30_network(ln_cfg.network) != network {
+                    error!(
+                        "Federation {} runs on {} but this gateway supports {}",
+                        info.federation_id, ln_cfg.network, network,
+                    );
+                    return Err(GatewayError::UnsupportedNetwork(
+                        bitcoin29_to_bitcoin30_network(ln_cfg.network),
+                    ));
+                }
+    
+                Ok(())
+            },
+            None => Err(GatewayError::InvalidMetadata(format!(
+                "Configuration is missing for federation {}",
+                info.federation_id
+            ))),
         }
-
-        Ok(())
     }
+    
 
     /// Checks the Gateway's current state and returns the proper
     /// `LightningContext` if it is available. Sometimes the lightning node
